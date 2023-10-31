@@ -9,7 +9,7 @@
 # files (the "Software"), to deal in the Software without
 # restriction, including without limitation the rights to use,
 # copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the
+# copies of the Software, and to permit persons to whom th
 # Software is furnished to do so, subject to the following
 # conditions:
 #
@@ -18,7 +18,7 @@
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AN
 # NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
 # HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
@@ -30,7 +30,9 @@
 import json
 import logging
 
+from dateutil.parser import parse as dateutil_parse
 from jsonschema.validators import Draft202012Validator
+from shapely.geometry import shape
 
 from json_fg_validator.bundle import JSON_FG_FILES
 
@@ -220,19 +222,139 @@ class JSONFGTestSuite:
             return status
 
         if 'date' in time_ and 'timestamp' in time_:
-            if time_['date'] != time_['timestamp']:
+            date_ = dateutil_parse(time_['date'])
+            timestamp = dateutil_parse(time_['timestamp'])
+            if date_.date() != timestamp.date():
                 status['code'] = 'FAILED'
-                status['message'] = 'date and timestamp not identical'
+                status['message'] = 'date and timestamp full-date not identical'  # noqa
 
         if 'timestamp' in time_ and 'interval' in time_:
-            found = False
+            found1 = found2 = False
+
+            timestamp = dateutil_parse(time_['timestamp'])
 
             for int_ in time_['interval']:
-                if int_ == time_['timestamp']:
-                    found = True
+                interval = dateutil_parse(int_)
+                if timestamp.date() == interval.date():
+                    found1 = True
+                if timestamp == interval:
+                    found2 = True
 
-            if not found:
+            if not found1:
+                status['code'] = 'FAILED'
+                status['message'] = 'timestamp full-date not in interval'
+
+            if not found2:
                 status['code'] = 'FAILED'
                 status['message'] = 'timestamp not in interval'
+
+        if 'date' in time_ and 'interval' in time_:
+            found1 = found2 = False
+
+            date_ = dateutil_parse(time_['date'])
+
+            for int_ in time_['interval']:
+                interval = dateutil_parse(int_)
+                if date_.date() == interval.date():
+                    found1 = True
+                if date_ == interval:
+                    found2 = True
+
+            if not found1:
+                status['code'] = 'FAILED'
+                status['message'] = 'date full-date not in interval'
+
+            if not found2:
+                status['code'] = 'FAILED'
+                status['message'] = 'date not in interval'
+
+        return status
+
+    def test_requirement_temporal_utc(self):
+        """
+        Validate that a JSON FG provides valid UTC information.
+        """
+
+        timestamps_to_validate = []
+
+        status = {
+            'id': gen_test_id('req/core/utc'),
+            'code': 'PASSED'
+        }
+
+        time_ = self.data.get('time')
+
+        if time_ is None:
+            status['code'] = 'SKIPPED'
+            status['message'] = 'Time is null'
+            return status
+
+        if 'timestamp' in time_:
+            timestamps_to_validate.append(time_['timestamp'])
+
+        if 'interval' in time_:
+            for int_ in time_['interval']:
+                if len(int_) > 11:
+                    timestamps_to_validate.append(int_)
+
+        for ttv in timestamps_to_validate:
+            ts = dateutil_parse(ttv)
+            if ts.tzname() != 'UTC':
+                status['code'] = 'FAILED'
+                status['message'] = 'Timestamp is not in UTC format'
+
+        return status
+
+    def test_requirement_coordinate_dimension(self):
+        """
+        Validate that a JSON FG provides valid coordinate dimensions
+        """
+
+        status = {
+            'id': gen_test_id('req/core/coordinate-dimension'),
+            'code': 'PASSED'
+        }
+
+        geometry = self.data.get('geometry')
+        if geometry is None:
+            status['code'] = 'SKIPPED'
+            status['message'] = 'Geometry is null'
+        else:
+            coord_dims = []
+            g = shape(geometry)
+            for c in g.coords:
+                coord_dims.append(len(c))
+
+            if len(set(coord_dims)) > 1:
+                status['code'] = 'FAILED'
+                status['message'] = 'Geometry dimensions are inconsistent'
+                return status
+
+        # TODO: place
+        # place = self.data.get('place')
+
+        return status
+
+    def test_requirement_geometry_wgs84(self):
+        """
+        Validate that a JSON FG provides valid WGS84 coordinates
+        """
+
+        status = {
+            'id': gen_test_id('req/core/geometry-wgs84'),
+            'code': 'PASSED'
+        }
+
+        geometry = self.data.get('geometry')
+
+        if geometry is None:
+            status['code'] = 'SKIPPED'
+            status['message'] = 'Geometry is null'
+        else:
+            g = shape(geometry)
+            for c in g.coords:
+                if (-180 > c[0] > 180) or (-90 > c[1] > 90):
+                    status['code'] = 'FAILED'
+                    status['message'] = 'Geometry coordinates are out of bounds'  # noqa
 
         return status
